@@ -19,24 +19,30 @@ func client(clientName string) {
 		return
 	}
 
-	// TRUSTING THE SERVER, CLIENT AUTH ONLY
 	// Load CA cert
-	// caCert, err := ioutil.ReadFile(*caFile)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// caCertPool := x509.NewCertPool()
-	// caCertPool.AppendCertsFromPEM(caCert)
+	caCert, err := ioutil.ReadFile("./certs/ca.pem")
+	if err != nil {
+		log.Fatal(err)
+	}
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
 
 	// Setup HTTPS client
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
-		// TRUSTING THE SERVER, CLIENT AUTH ONLY
-		// RootCAs:      caCertPool,
-		InsecureSkipVerify: true,
+		RootCAs:      caCertPool,
 	}
 	tlsConfig.BuildNameToCertificate()
-	transport := &http.Transport{TLSClientConfig: tlsConfig}
+	defaultTransport := http.DefaultTransport.(*http.Transport)
+	transport := &http.Transport{
+		Proxy:                 defaultTransport.Proxy,
+		DialContext:           defaultTransport.DialContext,
+		MaxIdleConns:          defaultTransport.MaxIdleConns,
+		IdleConnTimeout:       defaultTransport.IdleConnTimeout,
+		ExpectContinueTimeout: defaultTransport.ExpectContinueTimeout,
+		TLSHandshakeTimeout:   defaultTransport.TLSHandshakeTimeout,
+		TLSClientConfig:       tlsConfig,
+	}
 	client := &http.Client{Transport: transport}
 
 	resp, err := client.Get("https://localhost:8443/echo")
@@ -67,8 +73,7 @@ func server() error {
 		"./certs/server.pem", "./certs/server-key.pem")
 
 	tlsConfig := &tls.Config{
-		// server certificate which is _not_ validated by the client, but used
-		// for encryption
+		// server certificate which is validated by the client
 		Certificates: []tls.Certificate{cert},
 		// used to verify the client cert is signed by the CA
 		ClientCAs: caCertPool,
@@ -106,6 +111,7 @@ func main() {
 	log.Println("running client")
 	client("service-1234@accounts.example.com")
 	client("service-3456@accounts.example.com")
+	log.Println("expect next call to fail")
 	client("service-4567@accounts.example.com")
 	time.Sleep(5 * time.Second)
 }
